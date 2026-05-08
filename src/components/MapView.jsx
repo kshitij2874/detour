@@ -146,28 +146,32 @@ export default function MapView({ activities }) {
 
   if (!MAPS_API_KEY || mapError) {
     return (
-      <div className="map-container">
-        <div className="map-header"><span>🗺️</span><h2>Route Map</h2></div>
-        <div className="map-placeholder">
-          <span className="map-placeholder-icon">⚠️</span>
-          <span>{mapError || 'Add VITE_MAPS_API_KEY to enable the map.'}</span>
+      <div className="map-outer">
+        <div className="map-container">
+          <div className="map-header"><span>🗺️</span><h2>Route Map</h2></div>
+          <div className="map-placeholder">
+            <span className="map-placeholder-icon">⚠️</span>
+            <span>{mapError || 'Add VITE_MAPS_API_KEY to enable the map.'}</span>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="map-container">
-      <div className="map-header">
-        <span>🗺️</span>
-        <h2>Route Map</h2>
-        {pinnable.length > 0 && (
-          <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#64748B' }}>
-            {pinnable.length} stops
-          </span>
-        )}
+    <div className="map-outer">
+      <div className="map-container">
+        <div className="map-header">
+          <span>🗺️</span>
+          <h2>Route Map</h2>
+          {pinnable.length > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>
+              {pinnable.length} stops
+            </span>
+          )}
+        </div>
+        <div ref={mapRef} className="map-embed" aria-label="Trip route map" />
       </div>
-      <div ref={mapRef} className="map-embed" aria-label="Trip route map" />
     </div>
   );
 }

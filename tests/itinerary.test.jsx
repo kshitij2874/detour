@@ -24,7 +24,7 @@ import { generateItinerary, replanItinerary } from '../src/lib/gemini';
 import PlanForm from '../src/components/PlanForm';
 import DetourModal from '../src/components/DetourModal';
 import ItineraryCard from '../src/components/ItineraryCard';
-import App from '../src/App';
+import PlannerApp from '../src/pages/PlannerApp';
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 const mockItinerary = {
@@ -256,7 +256,7 @@ describe('11. PlanForm submit calls generateItinerary', () => {
   it('calls generateItinerary with form data when submitted with valid inputs', async () => {
     generateItinerary.mockResolvedValueOnce(mockItinerary);
 
-    render(<App />);
+    render(<PlannerApp />);
 
     fireEvent.change(screen.getByLabelText(/destination city/i), { target: { value: 'Jaipur' } });
     fireEvent.change(screen.getByLabelText(/total budget in inr/i), { target: { value: '10000' } });
@@ -352,7 +352,7 @@ describe('15. Empty/invalid Gemini response shows user-facing error', () => {
 
   it('shows error banner when generateItinerary throws', async () => {
     generateItinerary.mockRejectedValueOnce(new Error('All Gemini models are currently overloaded.'));
-    render(<App />);
+    render(<PlannerApp />);
 
     fireEvent.change(screen.getByLabelText(/destination city/i), { target: { value: 'Agra' } });
     fireEvent.change(screen.getByLabelText(/total budget in inr/i), { target: { value: '8000' } });
@@ -366,7 +366,7 @@ describe('15. Empty/invalid Gemini response shows user-facing error', () => {
 
   it('does not crash or show blank screen — empty state remains visible', async () => {
     generateItinerary.mockRejectedValueOnce(new Error('Network error'));
-    render(<App />);
+    render(<PlannerApp />);
 
     fireEvent.change(screen.getByLabelText(/destination city/i), { target: { value: 'Agra' } });
     fireEvent.change(screen.getByLabelText(/total budget in inr/i), { target: { value: '8000' } });
