@@ -58,15 +58,21 @@ function is503Error(err) {
 }
 
 /**
- * Detect whether an error is a 429 quota / rate-limit error.
- * On free-tier daily quota exhaustion, retrying on the same model is pointless —
- * we should immediately fall back to the next model in the chain.
+ * Detect whether an error is a 429 quota / rate-limit or 404 model-not-found error.
+ * Both should immediately skip to the next model rather than retrying or crashing.
  * @param {Error} err - The caught error
  * @returns {boolean}
  */
 function is429Error(err) {
   const msg = err?.message ?? '';
-  return msg.includes('429') || msg.includes('quota') || msg.includes('rate limit');
+  return (
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('404') ||
+    msg.includes('not found for API version') ||
+    msg.includes('is not supported for generateContent')
+  );
 }
 
 // ─── Core API Caller ──────────────────────────────────────────────────────────

@@ -4,12 +4,12 @@
  */
 
 /** Gemini model names in priority order (primary → fallbacks).
- *  gemini-2.5-flash is the primary. If it hits 503/overload, fall back.
+ *  gemini-1.5-flash (no suffix) was removed from v1beta — use versioned aliases.
  *  gemini-2.0-flash-lite has very low free-tier quotas so it comes last. */
 export const GEMINI_MODELS = [
   'gemini-2.5-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
   'gemini-2.0-flash-lite',
 ];
 
