@@ -14,7 +14,7 @@ export default function FeatureShowcaseSection() {
             autoPlay
             loop
             playsInline
-            preload="none"
+            preload="auto"
             aria-hidden="true"
           />
           <div className="fss-overlay" aria-hidden="true" />

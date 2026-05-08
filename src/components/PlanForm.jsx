@@ -42,7 +42,7 @@ export default function PlanForm({ onSubmit, isLoading }) {
       <p className="plan-form-subtitle">Tell us about your trip</p>
       <form onSubmit={handleSubmit} noValidate>
         <div className="form-grid">
-          <div className="form-group">
+          <div className="form-group full-width">
             <label className="form-label" htmlFor="destination">Destination City</label>
             <input id="destination" className={`form-input${errors.destination?' error':''}`} type="text"
               placeholder="e.g. Jaipur, Goa, Manali" aria-label="Destination city"
@@ -71,7 +71,7 @@ export default function PlanForm({ onSubmit, isLoading }) {
             {errors.budget && <span className="form-error" role="alert">{errors.budget}</span>}
           </div>
 
-          <div className="form-group">
+          <div className="form-group full-width">
             <label className="form-label" htmlFor="style">Travel Style</label>
             <select id="style" className="form-select" aria-label="Travel style"
               value={style} onChange={(e)=>setStyle(e.target.value)} disabled={isLoading}>
@@ -79,7 +79,7 @@ export default function PlanForm({ onSubmit, isLoading }) {
             </select>
           </div>
 
-          <div className="form-group">
+          <div className="form-group full-width">
             <label className="form-label">Dietary Preference</label>
             <div className="toggle-group" role="radiogroup" aria-label="Dietary preference">
               {['Veg Only','All'].map((d)=>(
@@ -91,7 +91,7 @@ export default function PlanForm({ onSubmit, isLoading }) {
             </div>
           </div>
 
-          <div className="form-group">
+          <div className="form-group full-width">
             <label className="form-label">Traveller Type</label>
             <div className="toggle-group" role="radiogroup" aria-label="Traveller type">
               {['Solo','Couple','Family'].map((t)=>(
