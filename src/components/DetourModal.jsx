@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { sanitizeInput } from '../lib/gemini';
 
 /**
@@ -81,3 +82,13 @@ export default function DetourModal({ isOpen, onClose, onSubmit, isLoading }) {
     </div>
   );
 }
+DetourModal.propTypes = {
+  /** Controls whether the modal is rendered. */
+  isOpen: PropTypes.bool.isRequired,
+  /** Callback to close/dismiss the modal. */
+  onClose: PropTypes.func.isRequired,
+  /** Callback fired with the sanitized disruption string on submit. */
+  onSubmit: PropTypes.func.isRequired,
+  /** When true, the textarea and submit button are disabled. */
+  isLoading: PropTypes.bool.isRequired,
+};

@@ -1,6 +1,12 @@
+import PropTypes from 'prop-types';
+
 /**
  * Build a Google Calendar event URL (no OAuth needed).
  * Opens a pre-filled event creation page.
+ *
+ * @param {Object} activity - Activity object with name, time, description fields
+ * @param {number} dayNumber - Trip day number (1-based), used to calculate event date
+ * @returns {string} Google Calendar render URL
  */
 function buildCalendarUrl(activity, dayNumber) {
   const tripDate = new Date();
@@ -154,3 +160,51 @@ export default function ItineraryCard({
     </article>
   );
 }
+
+/** @type {PropTypes.shape} Shared activity shape used across propTypes. */
+const activityShape = PropTypes.shape({
+  time: PropTypes.string,
+  name: PropTypes.string.isRequired,
+  description: PropTypes.string,
+  type: PropTypes.string,
+  estimatedCost: PropTypes.number,
+  lat: PropTypes.number,
+  lng: PropTypes.number,
+});
+
+ItineraryCard.propTypes = {
+  /** Day data object from the itinerary. */
+  dayData: PropTypes.shape({
+    day: PropTypes.number.isRequired,
+    activities: PropTypes.arrayOf(activityShape).isRequired,
+  }).isRequired,
+  /** Set of activity keys ("day-idx") marked as done. */
+  doneActivities: PropTypes.instanceOf(Set).isRequired,
+  /** Callback to toggle done state for a given activity key. */
+  onToggleDone: PropTypes.func.isRequired,
+  /** Set of activity keys that were modified by the last re-plan. */
+  replannedActivities: PropTypes.instanceOf(Set).isRequired,
+  /** Map of "day-idx" → Places enrichment data (optional). */
+  placeData: PropTypes.objectOf(
+    PropTypes.shape({
+      realName: PropTypes.string,
+      rating: PropTypes.number,
+      photoUrl: PropTypes.string,
+      openNow: PropTypes.bool,
+      address: PropTypes.string,
+    })
+  ),
+  /** Map of "day-idx" → Directions travel time (optional). */
+  travelTimes: PropTypes.objectOf(
+    PropTypes.shape({
+      duration: PropTypes.string,
+      distance: PropTypes.string,
+      mode: PropTypes.string,
+    })
+  ),
+};
+
+ItineraryCard.defaultProps = {
+  placeData: {},
+  travelTimes: {},
+};

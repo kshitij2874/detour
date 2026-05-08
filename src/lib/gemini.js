@@ -1,14 +1,16 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import logger from './logger';
+import { GEMINI_MODELS, MAX_RETRIES, RETRY_DELAYS_MS } from './constants';
 
+/** Gemini API key — read from environment variable only, never hardcoded. */
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// Primary model with fallback for high-demand 503 errors
-const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 /**
- * Sanitize user input by stripping HTML tags to prevent injection.
+ * Strip HTML tags from user-supplied text to prevent prompt injection.
  * @param {string} text - Raw user input
- * @returns {string} Sanitized text
+ * @returns {string} Sanitized text with all HTML tags removed
  */
 export function sanitizeInput(text) {
   if (typeof text !== 'string') return '';
@@ -16,68 +18,126 @@ export function sanitizeInput(text) {
 }
 
 /**
- * Parse a JSON response from Gemini, handling markdown fences.
+ * Parse a JSON string returned by Gemini, stripping optional markdown fences.
  * Exported for unit testing.
- * @param {string} raw - Raw response text from Gemini
- * @returns {object} Parsed JSON object
+ * @param {string} raw - Raw response text (may be wrapped in ```json ... ```)
+ * @returns {Object} Parsed itinerary or re-plan JSON object
+ * @throws {SyntaxError} If the cleaned string is not valid JSON
  */
 export function parseGeminiJSON(raw) {
   let cleaned = raw.trim();
   if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    cleaned = cleaned
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '');
   }
   return JSON.parse(cleaned);
 }
 
 /**
- * Sleep for a given number of milliseconds.
+ * Pause execution for a given number of milliseconds.
+ * @param {number} ms - Duration to sleep
+ * @returns {Promise<void>}
  */
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Call Gemini with automatic retry + model fallback on 503/overload errors.
- * Tries up to 3 times with exponential backoff, then falls back to next model.
+ * Detect whether an error is a transient 503 / overload error from the API.
+ * @param {Error} err - The caught error
+ * @returns {boolean}
  */
-async function callWithRetry(buildRequest, maxRetries = 3) {
+function is503Error(err) {
+  const msg = err?.message ?? '';
+  return (
+    msg.includes('503') ||
+    msg.includes('high demand') ||
+    msg.includes('overloaded')
+  );
+}
+
+// ─── Core API Caller ──────────────────────────────────────────────────────────
+
+/**
+ * Call the Gemini API with automatic per-model retry and exponential backoff.
+ *
+ * Strategy:
+ *  - Try each model in GEMINI_MODELS order.
+ *  - On a 503 / overload error, wait RETRY_DELAYS_MS[attempt] and retry.
+ *  - After MAX_RETRIES failures on a model, fall back to the next one.
+ *  - Non-503 errors are rethrown immediately (no retry).
+ *
+ * @param {function(): Object} buildRequest - Factory that returns the generateContent payload.
+ *   Called fresh on each attempt in case the payload needs to be regenerated.
+ * @returns {Promise<string>} Raw text response from Gemini
+ * @throws {Error} When all models are exhausted or a non-503 error occurs
+ */
+async function callWithRetry(buildRequest) {
   const genAI = new GoogleGenerativeAI(API_KEY);
 
-  for (const modelName of MODELS) {
+  for (const modelName of GEMINI_MODELS) {
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const result = await model.generateContent(buildRequest());
-        console.log(`Gemini response received (model: ${modelName}, attempt: ${attempt})`);
+        logger.log(`Response received (model: ${modelName}, attempt: ${attempt})`);
         return result.response.text();
       } catch (err) {
-        const is503 = err.message?.includes('503') || err.message?.includes('high demand') || err.message?.includes('overloaded');
-        const isLast = attempt === maxRetries;
+        const isOverload = is503Error(err);
+        const isLastAttempt = attempt === MAX_RETRIES;
 
-        if (is503 && !isLast) {
-          const delay = 1000 * Math.pow(2, attempt); // 2s, 4s, 8s
-          console.warn(`Model ${modelName} overloaded. Retrying in ${delay / 1000}s... (attempt ${attempt}/${maxRetries})`);
+        if (isOverload && !isLastAttempt) {
+          const delay = RETRY_DELAYS_MS[attempt - 1] ?? 2000;
+          logger.warn(
+            `Model ${modelName} overloaded. Retrying in ${delay / 1000}s (attempt ${attempt}/${MAX_RETRIES})`
+          );
           await sleep(delay);
-        } else if (is503 && isLast) {
-          console.warn(`Model ${modelName} still unavailable after ${maxRetries} attempts. Trying fallback...`);
-          break; // try next model
+        } else if (isOverload && isLastAttempt) {
+          logger.warn(
+            `Model ${modelName} still unavailable after ${MAX_RETRIES} attempts. Trying fallback…`
+          );
+          break; // move to next model
         } else {
-          throw err; // non-503 errors bubble up immediately
+          throw err; // non-transient error — surface immediately
         }
       }
     }
   }
 
-  throw new Error('All Gemini models are currently overloaded. Please try again in a moment.');
+  throw new Error(
+    'All Gemini models are currently overloaded. Please try again in a moment.'
+  );
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 /**
- * Generate a travel itinerary using Gemini.
+ * Generate a day-wise travel itinerary using the Gemini API.
+ *
+ * @param {Object} preferences - User travel preferences
+ * @param {string} preferences.destination - Target Indian city or region
+ * @param {number} preferences.days - Trip duration (1–7)
+ * @param {number} preferences.budget - Total budget in INR
+ * @param {string} preferences.style - Travel style (Adventure / Relaxed / Cultural / Foodie)
+ * @param {string} preferences.dietary - Dietary preference (Veg Only / All)
+ * @param {string} preferences.travellerType - Solo / Couple / Family
+ * @returns {Promise<Object>} Structured itinerary JSON matching the Gemini schema
+ * @throws {Error} If API key is missing or all models are unavailable
  */
-export async function generateItinerary({ destination, days, budget, style, dietary, travellerType }) {
+export async function generateItinerary({
+  destination,
+  days,
+  budget,
+  style,
+  dietary,
+  travellerType,
+}) {
   if (!API_KEY) {
-    throw new Error('VITE_GEMINI_API_KEY is not set. Please add it to your .env file.');
+    throw new Error(
+      'VITE_GEMINI_API_KEY is not set. Please add it to your .env file.'
+    );
   }
 
   const systemPrompt = `You are a travel planning assistant for Indian destinations. 
@@ -100,11 +160,27 @@ The total of all estimated costs should stay within the ₹${budget} budget.`;
 }
 
 /**
- * Re-plan the itinerary after a disruption using Gemini.
+ * Re-plan a trip itinerary after a mid-trip disruption.
+ *
+ * Only undone activities are modified; completed activities are preserved
+ * exactly as-is in the merged output produced by App.mergeReplan.
+ *
+ * @param {Object} params - Re-plan parameters
+ * @param {Object} params.originalItinerary - The full itinerary JSON before the disruption
+ * @param {string[]} params.doneActivities - Names of activities already completed
+ * @param {string} params.disruption - Free-text description of what went wrong
+ * @returns {Promise<Object>} Updated itinerary JSON with undone activities re-planned
+ * @throws {Error} If API key is missing or all models are unavailable
  */
-export async function replanItinerary({ originalItinerary, doneActivities, disruption }) {
+export async function replanItinerary({
+  originalItinerary,
+  doneActivities,
+  disruption,
+}) {
   if (!API_KEY) {
-    throw new Error('VITE_GEMINI_API_KEY is not set. Please add it to your .env file.');
+    throw new Error(
+      'VITE_GEMINI_API_KEY is not set. Please add it to your .env file.'
+    );
   }
 
   const systemPrompt = `You are a travel re-planning assistant. The traveller has described a disruption mid-trip. Re-plan ONLY the remaining undone activities for the affected time period. Keep all done activities unchanged. Return the same JSON structure as the original itinerary, with only the undone activities modified. Return ONLY valid JSON, no markdown, no explanation.

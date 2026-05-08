@@ -5,12 +5,18 @@ import ItineraryCard from './components/ItineraryCard';
 import MapView from './components/MapView';
 import DetourModal from './components/DetourModal';
 import YouTubeVideos from './components/YouTubeVideos';
+import ErrorBoundary from './components/ErrorBoundary';
 import { generateItinerary, replanItinerary } from './lib/gemini';
 import { enrichItinerary } from './lib/places';
 import { fetchTravelTimes } from './lib/directions';
+import logger from './lib/logger';
+import {
+  STORAGE_KEYS,
+  BUDGET_WARNING_THRESHOLD,
+} from './lib/constants';
 
-const STORAGE_KEY = 'detour_trip';
-const STORAGE_DONE_KEY = 'detour_done';
+const STORAGE_KEY = STORAGE_KEYS.TRIP;
+const STORAGE_DONE_KEY = STORAGE_KEYS.DONE;
 
 export function calculateBudgetRemaining(itinerary) {
   if (!itinerary || !itinerary.days) return 0;
@@ -83,12 +89,12 @@ function App() {
 
     enrichItinerary(itinerary, itinerary.destination)
       .then((data) => setPlaceData(data))
-      .catch(() => {})
+      .catch((err) => { logger.error('Places enrichment failed', err); })
       .finally(() => setIsEnriching(false));
 
     fetchTravelTimes(itinerary)
       .then((times) => setTravelTimes(times))
-      .catch(() => {});
+      .catch((err) => { logger.error('Directions fetch failed', err); });
   }, [itinerary]);
 
   const allActivities = useMemo(() => {
@@ -169,7 +175,7 @@ function App() {
   }, [itinerary, doneActivities]);
 
   const budgetVariant = budgetRemaining < 0 ? 'danger'
-    : budgetRemaining < (itinerary?.totalBudget || 0) * 0.15 ? 'warning' : '';
+    : budgetRemaining < (itinerary?.totalBudget || 0) * BUDGET_WARNING_THRESHOLD ? 'warning' : '';
 
   return (
     <>
@@ -213,7 +219,7 @@ function App() {
           )}
 
           {itinerary && !isLoading && (
-            <>
+            <ErrorBoundary onReset={handleStartNew}>
               {/* YouTube Videos */}
               <YouTubeVideos destination={itinerary.destination} />
 
@@ -248,7 +254,7 @@ function App() {
                   />
                 ))}
               </section>
-            </>
+            </ErrorBoundary>
           )}
 
           {!itinerary && !isLoading && !error && !savedTrip && (

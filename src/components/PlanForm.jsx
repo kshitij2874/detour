@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { sanitizeInput } from '../lib/gemini';
+import { MIN_DAYS, MAX_DAYS, MAX_BUDGET_INR } from '../lib/constants';
 
 const STYLES = ['Adventure', 'Relaxed', 'Cultural', 'Foodie'];
 
@@ -196,3 +198,9 @@ export default function PlanForm({ onSubmit, isLoading }) {
     </section>
   );
 }
+PlanForm.propTypes = {
+  /** Callback fired when form is submitted with valid data. Receives { destination, days, budget, style, dietary, travellerType }. */
+  onSubmit: PropTypes.func.isRequired,
+  /** When true, all inputs and the submit button are disabled. */
+  isLoading: PropTypes.bool.isRequired,
+};
