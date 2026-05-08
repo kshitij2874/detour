@@ -1,7 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader } from '@googlemaps/js-api-loader';
 
 const MAPS_API_KEY = import.meta.env.VITE_MAPS_API_KEY;
+
+/** Inject the Maps script once and resolve when ready. */
+function loadMapsScript() {
+  if (window.__mapsPromise) return window.__mapsPromise;
+
+  window.__mapsPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) {
+      resolve();
+      return;
+    }
+    const callbackName = '__gm_cb_' + Date.now();
+    window[callbackName] = () => resolve();
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${MAPS_API_KEY}&callback=${callbackName}`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => reject(new Error('Failed to load Google Maps script.'));
+    document.head.appendChild(script);
+  });
+
+  return window.__mapsPromise;
+}
 
 /**
  * MapView — Google Maps embed with numbered markers and polyline.
@@ -14,60 +36,37 @@ export default function MapView({ activities }) {
   const markersRef = useRef([]);
   const polylineRef = useRef(null);
   const infoWindowRef = useRef(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
 
-  // Filter activities that have valid lat/lng
   const pinnable = (activities || []).filter(
-    (a) => a.lat && a.lng && !isNaN(a.lat) && !isNaN(a.lng)
+    (a) => a.lat && a.lng && !isNaN(Number(a.lat)) && !isNaN(Number(a.lng))
   );
 
-  // Load Google Maps
+  // Load script once
   useEffect(() => {
     if (!MAPS_API_KEY) {
-      setMapError('Google Maps API key not set. Add VITE_MAPS_API_KEY to your .env file.');
+      setMapError('Add VITE_MAPS_API_KEY to enable the map.');
       return;
     }
-
-    const loader = new Loader({
-      apiKey: MAPS_API_KEY,
-      version: 'weekly',
-      libraries: ['marker'],
-    });
-
-    loader
-      .importLibrary('maps')
-      .then(() => {
-        setMapLoaded(true);
-      })
-      .catch((err) => {
-        setMapError('Failed to load Google Maps. Check your API key.');
-        console.error('Maps load error:', err.message);
-      });
+    loadMapsScript()
+      .then(() => setMapReady(true))
+      .catch((err) => setMapError(err.message));
   }, []);
 
-  // Render markers and polyline whenever activities or map change
+  // Draw markers whenever map is ready or activities change
   useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return;
-    if (!window.google || !window.google.maps) return;
-
+    if (!mapReady || !mapRef.current) return;
     const google = window.google;
 
-    // Create or reuse map instance
+    // Create map instance once
     if (!mapInstanceRef.current) {
       mapInstanceRef.current = new google.maps.Map(mapRef.current, {
         zoom: 12,
-        center: { lat: 20.5937, lng: 78.9629 }, // Default: India center
+        center: { lat: 20.5937, lng: 78.9629 },
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: true,
-        styles: [
-          {
-            featureType: 'poi',
-            elementType: 'labels',
-            stylers: [{ visibility: 'off' }],
-          },
-        ],
       });
       infoWindowRef.current = new google.maps.InfoWindow();
     }
@@ -75,11 +74,9 @@ export default function MapView({ activities }) {
     const map = mapInstanceRef.current;
     const infoWindow = infoWindowRef.current;
 
-    // Clear old markers
+    // Clear old markers & polyline
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
-
-    // Clear old polyline
     if (polylineRef.current) {
       polylineRef.current.setMap(null);
       polylineRef.current = null;
@@ -87,12 +84,11 @@ export default function MapView({ activities }) {
 
     if (pinnable.length === 0) return;
 
-    // Bounds for auto-fit
     const bounds = new google.maps.LatLngBounds();
     const path = [];
 
     pinnable.forEach((activity, index) => {
-      const position = { lat: activity.lat, lng: activity.lng };
+      const position = { lat: Number(activity.lat), lng: Number(activity.lng) };
       bounds.extend(position);
       path.push(position);
 
@@ -118,9 +114,9 @@ export default function MapView({ activities }) {
 
       marker.addListener('click', () => {
         infoWindow.setContent(`
-          <div style="font-family: Inter, sans-serif; padding: 4px;">
-            <strong style="color: #1E293B;">${activity.name}</strong><br/>
-            <span style="color: #64748B; font-size: 13px;">₹${(activity.estimatedCost || 0).toLocaleString('en-IN')}</span>
+          <div style="font-family:Inter,sans-serif;padding:4px 2px">
+            <strong style="color:#1E293B">${activity.name}</strong><br/>
+            <span style="color:#64748B;font-size:13px">₹${(activity.estimatedCost || 0).toLocaleString('en-IN')}</span>
           </div>
         `);
         infoWindow.open(map, marker);
@@ -129,7 +125,7 @@ export default function MapView({ activities }) {
       markersRef.current.push(marker);
     });
 
-    // Draw polyline
+    // Polyline
     polylineRef.current = new google.maps.Polyline({
       path,
       geodesic: true,
@@ -139,40 +135,22 @@ export default function MapView({ activities }) {
     });
     polylineRef.current.setMap(map);
 
-    // Fit bounds
     if (pinnable.length === 1) {
       map.setCenter(path[0]);
       map.setZoom(14);
     } else {
       map.fitBounds(bounds, 50);
     }
-  }, [mapLoaded, pinnable.length, JSON.stringify(pinnable.map((a) => [a.lat, a.lng, a.name]))]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, JSON.stringify(pinnable.map((a) => [a.lat, a.lng, a.name]))]);
 
-  if (mapError) {
+  if (!MAPS_API_KEY || mapError) {
     return (
       <div className="map-container">
-        <div className="map-header">
-          <span>🗺️</span>
-          <h2>Route Map</h2>
-        </div>
+        <div className="map-header"><span>🗺️</span><h2>Route Map</h2></div>
         <div className="map-placeholder">
           <span className="map-placeholder-icon">⚠️</span>
-          <span>{mapError}</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!MAPS_API_KEY) {
-    return (
-      <div className="map-container">
-        <div className="map-header">
-          <span>🗺️</span>
-          <h2>Route Map</h2>
-        </div>
-        <div className="map-placeholder">
-          <span className="map-placeholder-icon">🗺️</span>
-          <span>Add VITE_MAPS_API_KEY to enable the map</span>
+          <span>{mapError || 'Add VITE_MAPS_API_KEY to enable the map.'}</span>
         </div>
       </div>
     );
