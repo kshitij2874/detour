@@ -120,7 +120,9 @@ export default function ItineraryCard({
                     {activity.type}
                   </span>
                   <span className="activity-cost">
-                    ₹{(activity.estimatedCost || 0).toLocaleString('en-IN')}
+                    {(activity.estimatedCost || 0) === 0
+                      ? 'Free'
+                      : `₹${(activity.estimatedCost).toLocaleString('en-IN')}`}
                   </span>
                   <a
                     href={calUrl}

@@ -17,10 +17,11 @@ export function sanitizeInput(text) {
 
 /**
  * Parse a JSON response from Gemini, handling markdown fences.
+ * Exported for unit testing.
  * @param {string} raw - Raw response text from Gemini
  * @returns {object} Parsed JSON object
  */
-function parseGeminiJSON(raw) {
+export function parseGeminiJSON(raw) {
   let cleaned = raw.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
