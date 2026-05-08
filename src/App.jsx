@@ -52,17 +52,18 @@ function loadSavedDone() {
 }
 
 function App() {
-  const [itinerary, setItinerary]           = useState(null);
-  const [savedTrip, setSavedTrip]           = useState(null);
-  const [isLoading, setIsLoading]           = useState(false);
-  const [isReplanning, setIsReplanning]     = useState(false);
-  const [error, setError]                   = useState(null);
-  const [doneActivities, setDoneActivities] = useState(new Set());
+  const [itinerary, setItinerary]                     = useState(null);
+  const [savedTrip, setSavedTrip]                     = useState(null);
+  const [isLoading, setIsLoading]                     = useState(false);
+  const [isReplanning, setIsReplanning]               = useState(false);
+  const [error, setError]                             = useState(null);
+  const [doneActivities, setDoneActivities]           = useState(new Set());
   const [replannedActivities, setReplannedActivities] = useState(new Set());
-  const [isModalOpen, setIsModalOpen]       = useState(false);
-  const [placeData, setPlaceData]           = useState({});
-  const [travelTimes, setTravelTimes]       = useState({});
-  const [isEnriching, setIsEnriching]       = useState(false);
+  const [isModalOpen, setIsModalOpen]                 = useState(false);
+  const [placeData, setPlaceData]                     = useState({});
+  const [travelTimes, setTravelTimes]                 = useState({});
+  const [isEnriching, setIsEnriching]                 = useState(false);
+  const [geocodedCenter, setGeocodedCenter]           = useState(null);
 
   // Load saved trip on mount
   useEffect(() => {
@@ -131,10 +132,32 @@ function App() {
     setSavedTrip(null);
     setPlaceData({});
     setTravelTimes({});
+    setGeocodedCenter(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(STORAGE_DONE_KEY);
+
+    // Geocode the destination to get lat/lng for map centering.
+    // Falls back to text-only flow if geocoding fails or key is absent.
+    let enrichedFormData = formData;
     try {
-      const result = await generateItinerary(formData);
+      const MAPS_KEY = import.meta.env.VITE_MAPS_API_KEY;
+      if (MAPS_KEY) {
+        const res = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(formData.destination)}&key=${MAPS_KEY}`
+        );
+        const data = await res.json();
+        const loc = data.results?.[0]?.geometry?.location;
+        if (loc) {
+          setGeocodedCenter({ lat: loc.lat, lng: loc.lng });
+          enrichedFormData = { ...formData, geocodedLat: loc.lat, geocodedLng: loc.lng };
+        }
+      }
+    } catch {
+      logger.warn('Geocoding failed — proceeding with text-only destination');
+    }
+
+    try {
+      const result = await generateItinerary(enrichedFormData);
       setItinerary(result);
     } catch (err) {
       setError(err.message || 'Failed to generate itinerary. Please try again.');
@@ -224,7 +247,7 @@ function App() {
               <YouTubeVideos destination={itinerary.destination} />
 
               {/* Map */}
-              <MapView activities={allActivities} />
+              <MapView activities={allActivities} initialCenter={geocodedCenter} />
 
               {/* Itinerary */}
               <section className="itinerary-section" aria-label="Your itinerary">

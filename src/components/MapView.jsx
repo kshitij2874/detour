@@ -29,8 +29,9 @@ function loadMapsScript() {
  * MapView — Google Maps embed with numbered markers and polyline.
  * @param {object} props
  * @param {Array} props.activities - Flat list of activities with lat/lng
+ * @param {{ lat: number, lng: number } | null} props.initialCenter - Geocoded destination center
  */
-export default function MapView({ activities }) {
+export default function MapView({ activities, initialCenter }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -61,9 +62,10 @@ export default function MapView({ activities }) {
 
     // Create map instance once
     if (!mapInstanceRef.current) {
+      const defaultCenter = initialCenter || { lat: 20.5937, lng: 78.9629 };
       mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-        zoom: 12,
-        center: { lat: 20.5937, lng: 78.9629 },
+        zoom: initialCenter ? 13 : 5,
+        center: defaultCenter,
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: true,
