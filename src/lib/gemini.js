@@ -44,7 +44,7 @@ function sleep(ms) {
 }
 
 /**
- * Detect whether an error is a transient 503 / overload error from the API.
+ * Detect whether an error is a transient 503 overload error from the API.
  * @param {Error} err - The caught error
  * @returns {boolean}
  */
@@ -55,6 +55,18 @@ function is503Error(err) {
     msg.includes('high demand') ||
     msg.includes('overloaded')
   );
+}
+
+/**
+ * Detect whether an error is a 429 quota / rate-limit error.
+ * On free-tier daily quota exhaustion, retrying on the same model is pointless —
+ * we should immediately fall back to the next model in the chain.
+ * @param {Error} err - The caught error
+ * @returns {boolean}
+ */
+function is429Error(err) {
+  const msg = err?.message ?? '';
+  return msg.includes('429') || msg.includes('quota') || msg.includes('rate limit');
 }
 
 // ─── Core API Caller ──────────────────────────────────────────────────────────
@@ -86,9 +98,14 @@ async function callWithRetry(buildRequest) {
         return result.response.text();
       } catch (err) {
         const isOverload = is503Error(err);
+        const isQuota   = is429Error(err);
         const isLastAttempt = attempt === MAX_RETRIES;
 
-        if (isOverload && !isLastAttempt) {
+        if (isQuota) {
+          // Daily/minute quota exhausted — no point retrying this model; skip immediately.
+          logger.warn(`Model ${modelName} quota exceeded (429). Skipping to next model…`);
+          break;
+        } else if (isOverload && !isLastAttempt) {
           const delay = RETRY_DELAYS_MS[attempt - 1] ?? 2000;
           logger.warn(
             `Model ${modelName} overloaded. Retrying in ${delay / 1000}s (attempt ${attempt}/${MAX_RETRIES})`
