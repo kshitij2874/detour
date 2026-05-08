@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import './index.css';
 import PlanForm from './components/PlanForm';
 import ItineraryCard from './components/ItineraryCard';
@@ -6,10 +6,11 @@ import MapView from './components/MapView';
 import DetourModal from './components/DetourModal';
 import { generateItinerary, replanItinerary } from './lib/gemini';
 
+const STORAGE_KEY = 'detour_trip';
+const STORAGE_DONE_KEY = 'detour_done';
+
 /**
  * Calculate the remaining budget from the itinerary.
- * @param {object} itinerary - Full itinerary JSON
- * @returns {number} Remaining budget
  */
 export function calculateBudgetRemaining(itinerary) {
   if (!itinerary || !itinerary.days) return 0;
@@ -21,10 +22,6 @@ export function calculateBudgetRemaining(itinerary) {
 
 /**
  * Merge replanned itinerary with done activities preserved.
- * @param {object} original - Original itinerary
- * @param {object} replanned - New itinerary from Gemini
- * @param {Set<string>} doneKeys - "day-index" keys of done activities
- * @returns {{ merged: object, replannedKeys: Set<string> }}
  */
 export function mergeReplan(original, replanned, doneKeys) {
   const replannedKeys = new Set();
@@ -36,11 +33,9 @@ export function mergeReplan(original, replanned, doneKeys) {
 
     const activities = day.activities.map((activity, actIdx) => {
       const key = `${day.day}-${actIdx}`;
-      // If this activity was marked as done in the original, preserve it
       if (doneKeys.has(key) && originalDay.activities[actIdx]) {
         return { ...originalDay.activities[actIdx] };
       }
-      // Check if this activity differs from original
       if (
         originalDay.activities[actIdx] &&
         originalDay.activities[actIdx].name !== activity.name
@@ -56,8 +51,29 @@ export function mergeReplan(original, replanned, doneKeys) {
   return { merged, replannedKeys };
 }
 
+/** Load itinerary from localStorage, returns null if missing/corrupt. */
+function loadSavedTrip() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Load done activities set from localStorage. */
+function loadSavedDone() {
+  try {
+    const raw = localStorage.getItem(STORAGE_DONE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 function App() {
   const [itinerary, setItinerary] = useState(null);
+  const [savedTrip, setSavedTrip] = useState(null); // trip detected in localStorage on load
   const [isLoading, setIsLoading] = useState(false);
   const [isReplanning, setIsReplanning] = useState(false);
   const [error, setError] = useState(null);
@@ -65,31 +81,66 @@ function App() {
   const [replannedActivities, setReplannedActivities] = useState(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Flatten all activities for the map
+  // On mount, check localStorage for a saved trip
+  useEffect(() => {
+    const saved = loadSavedTrip();
+    if (saved) setSavedTrip(saved);
+  }, []);
+
+  // Persist itinerary to localStorage whenever it changes
+  useEffect(() => {
+    if (itinerary) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(itinerary));
+    }
+  }, [itinerary]);
+
+  // Persist done activities to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_DONE_KEY, JSON.stringify([...doneActivities]));
+  }, [doneActivities]);
+
+  // Resume saved trip
+  const handleResume = useCallback(() => {
+    setItinerary(savedTrip);
+    setDoneActivities(loadSavedDone());
+    setSavedTrip(null);
+  }, [savedTrip]);
+
+  // Clear everything and start fresh
+  const handleStartNew = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_DONE_KEY);
+    setSavedTrip(null);
+    setItinerary(null);
+    setDoneActivities(new Set());
+    setReplannedActivities(new Set());
+    setError(null);
+  }, []);
+
+  // Flat activity list for map
   const allActivities = useMemo(() => {
     if (!itinerary || !itinerary.days) return [];
     return itinerary.days.flatMap((day) => day.activities);
   }, [itinerary]);
 
-  // Budget remaining
-  const budgetRemaining = useMemo(() => {
-    return calculateBudgetRemaining(itinerary);
-  }, [itinerary]);
+  const budgetRemaining = useMemo(() => calculateBudgetRemaining(itinerary), [itinerary]);
 
-  // Handle plan submission
+  // Generate new plan
   const handlePlanSubmit = useCallback(async (formData) => {
     setIsLoading(true);
     setError(null);
     setItinerary(null);
     setDoneActivities(new Set());
     setReplannedActivities(new Set());
+    setSavedTrip(null);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_DONE_KEY);
 
     try {
       const result = await generateItinerary(formData);
       setItinerary(result);
     } catch (err) {
       setError(err.message || 'Failed to generate itinerary. Please try again.');
-      console.error('Plan error:', err.message);
     } finally {
       setIsLoading(false);
     }
@@ -99,29 +150,22 @@ function App() {
   const handleToggleDone = useCallback((key) => {
     setDoneActivities((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
   }, []);
 
-  // Handle replan
+  // Re-plan
   const handleReplan = useCallback(async (disruption) => {
     if (!itinerary) return;
     setIsReplanning(true);
     setError(null);
 
     try {
-      // Collect names of done activities
       const doneNames = [];
       itinerary.days.forEach((day) => {
         day.activities.forEach((activity, idx) => {
-          if (doneActivities.has(`${day.day}-${idx}`)) {
-            doneNames.push(activity.name);
-          }
+          if (doneActivities.has(`${day.day}-${idx}`)) doneNames.push(activity.name);
         });
       });
 
@@ -132,18 +176,16 @@ function App() {
       });
 
       const { merged, replannedKeys } = mergeReplan(itinerary, result, doneActivities);
-      setItinerary(merged);
+      setItinerary(merged); // triggers localStorage save via useEffect
       setReplannedActivities(replannedKeys);
       setIsModalOpen(false);
     } catch (err) {
       setError(err.message || 'Failed to re-plan. Please try again.');
-      console.error('Replan error:', err.message);
     } finally {
       setIsReplanning(false);
     }
   }, [itinerary, doneActivities]);
 
-  // Budget badge variant
   const budgetVariant = budgetRemaining < 0
     ? 'danger'
     : budgetRemaining < (itinerary?.totalBudget || 0) * 0.15
@@ -161,7 +203,51 @@ function App() {
       </header>
 
       <main>
-        <PlanForm onSubmit={handlePlanSubmit} isLoading={isLoading} />
+        {/* Saved trip banner */}
+        {savedTrip && !itinerary && (
+          <div className="saved-trip-banner" role="region" aria-label="Saved trip detected">
+            <div className="saved-trip-info">
+              <span className="saved-trip-icon">📌</span>
+              <span>
+                You have a saved trip to <strong>{savedTrip.destination}</strong>. Continue planning?
+              </span>
+            </div>
+            <div className="saved-trip-actions">
+              <button
+                className="btn-resume"
+                onClick={handleResume}
+                aria-label={`Resume saved trip to ${savedTrip.destination}`}
+              >
+                ✅ Resume Trip
+              </button>
+              <button
+                className="btn-new"
+                onClick={handleStartNew}
+                aria-label="Discard saved trip and start a new one"
+              >
+                🗑️ Start New Trip
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Show form only when no active itinerary */}
+        {!itinerary && !isLoading && (
+          <PlanForm onSubmit={handlePlanSubmit} isLoading={isLoading} />
+        )}
+
+        {/* "Start new trip" button when itinerary is active */}
+        {itinerary && !isLoading && (
+          <div style={{ marginBottom: '16px', textAlign: 'right' }}>
+            <button
+              className="btn-new"
+              onClick={handleStartNew}
+              aria-label="Clear current trip and start a new one"
+            >
+              🗑️ Start New Trip
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="error-banner" role="alert">
@@ -184,10 +270,8 @@ function App() {
 
           {itinerary && !isLoading && (
             <>
-              {/* Map */}
               <MapView activities={allActivities} />
 
-              {/* Itinerary header */}
               <section className="itinerary-section" aria-label="Your itinerary">
                 <div className="itinerary-header">
                   <h2 className="itinerary-title">
@@ -198,7 +282,6 @@ function App() {
                   </span>
                 </div>
 
-                {/* Day cards */}
                 {itinerary.days?.map((day) => (
                   <ItineraryCard
                     key={day.day}
@@ -212,7 +295,7 @@ function App() {
             </>
           )}
 
-          {!itinerary && !isLoading && !error && (
+          {!itinerary && !isLoading && !error && !savedTrip && (
             <div className="empty-state">
               <div className="empty-state-icon">🌏</div>
               <p className="empty-state-text">
@@ -223,7 +306,6 @@ function App() {
         </div>
       </main>
 
-      {/* Detour FAB — only visible when itinerary exists */}
       {itinerary && !isLoading && (
         <button
           className="detour-fab"
@@ -234,7 +316,6 @@ function App() {
         </button>
       )}
 
-      {/* Detour Modal */}
       <DetourModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
